@@ -215,4 +215,4 @@ Your ZOXAA AI Cognitive Partner is now live!
 
 ---
 
-**Built with ❤️ by the ZOXAA team** 
+**Built with ❤️ by the ZOXAA team**

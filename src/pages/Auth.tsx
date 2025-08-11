@@ -165,6 +165,9 @@ const Auth = () => {
                   {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Sign In
                 </Button>
+                <div className="text-xs text-gray-500 text-center">
+                  By signing in, you agree to our <a href="/terms" className="underline">Terms</a> and <a href="/privacy" className="underline">Privacy Policy</a>.
+                </div>
               </form>
             </TabsContent>
             
@@ -205,6 +208,10 @@ const Auth = () => {
                   {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Create Account
                 </Button>
+                <div className="flex items-center gap-2 text-xs text-gray-600">
+                  <input type="checkbox" required />
+                  <span>I agree to the <a href="/terms" className="underline">Terms</a> and <a href="/privacy" className="underline">Privacy Policy</a>.</span>
+                </div>
               </form>
             </TabsContent>
           </Tabs>

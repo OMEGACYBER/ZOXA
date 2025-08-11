@@ -16,12 +16,15 @@ import {
   Heart,
   MessageCircle,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  TrendingUp,
+  ActivitySquare
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import useZoxaaChat from "@/hooks/useZoxaaChat";
-import useRealTimeVoice from "@/hooks/useRealTimeVoice";
+import { useZoxaaChat } from "@/hooks/useZoxaaChat";
+import useZoxaaVoice from "@/hooks/useZoxaaVoice";
+import { VoiceQualityIndicator } from "@/components/voice/VoiceQualityIndicator";
 
 interface VoiceChatInterfaceProps {
   className?: string;
@@ -33,6 +36,7 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
   const [currentEmotion, setCurrentEmotion] = useState<string>('neutral');
   const [voiceActivity, setVoiceActivity] = useState<number>(0);
   const [showBrowserInfo, setShowBrowserInfo] = useState(false);
+  const [showEVI3Metrics, setShowEVI3Metrics] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -71,19 +75,22 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
   const isSmallScreen = screenSize.width < 480;
 
   // Custom hooks
-  const { messages, isThinking, sendMessage, addMessage } = useZoxaaChat();
+  const { messages, isLoading, sendMessage, clearMessages } = useZoxaaChat();
   const { 
-    isListening, 
-    isSpeaking, 
-    currentTranscript, 
-    voiceSupported,
-    permissionGranted,
-    startRealTimeListening, 
-    stopRealTimeListening, 
+    isRecording, 
+    isPlaying, 
+    userEmotion,
+    isListeningForInterruption, 
+    audioLevel,
+    voiceQuality,
+    conversationInsights,
+    startRecording, 
+    stopRecording, 
     speakWithEmotion, 
     stopSpeaking,
-    requestMicrophonePermission
-  } = useRealTimeVoice();
+    analyzeUserEmotion,
+    getEmotionalResponse
+  } = useZoxaaVoice();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -95,15 +102,14 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
 
   // Auto-detect emotion from transcript
   useEffect(() => {
-    if (currentTranscript) {
-      const emotion = detectEmotion(currentTranscript);
-      setCurrentEmotion(emotion);
+    if (currentEmotion !== userEmotion.primaryEmotion) {
+      setCurrentEmotion(userEmotion.primaryEmotion);
     }
-  }, [currentTranscript]);
+  }, [userEmotion.primaryEmotion, currentEmotion]);
 
   // Simulate voice activity visualization
   useEffect(() => {
-    if (isListening) {
+    if (isRecording) {
       const interval = setInterval(() => {
         setVoiceActivity(Math.random() * 100);
       }, 100);
@@ -111,26 +117,7 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
     } else {
       setVoiceActivity(0);
     }
-  }, [isListening]);
-
-  const detectEmotion = (text: string): string => {
-    const emotions = {
-      happy: ['happy', 'excited', 'joy', 'great', 'amazing', 'wonderful', 'love', 'fantastic'],
-      sad: ['sad', 'depressed', 'down', 'upset', 'terrible', 'awful', 'crying', 'hurt'],
-      anxious: ['anxious', 'worried', 'nervous', 'stressed', 'overwhelmed', 'scared', 'fear'],
-      angry: ['angry', 'frustrated', 'mad', 'annoyed', 'irritated', 'hate', 'furious'],
-      calm: ['calm', 'peaceful', 'relaxed', 'serene', 'tranquil', 'quiet'],
-      excited: ['excited', 'thrilled', 'pumped', 'energetic', 'motivated', 'inspired']
-    };
-
-    const lowerText = text.toLowerCase();
-    for (const [emotion, keywords] of Object.entries(emotions)) {
-      if (keywords.some(keyword => lowerText.includes(keyword))) {
-        return emotion;
-      }
-    }
-    return 'neutral';
-  };
+  }, [isRecording]);
 
   const getBrowserInfo = () => {
     const browser = isChrome ? 'Chrome' : isSafari ? 'Safari' : isFirefox ? 'Firefox' : isEdge ? 'Edge' : 'Unknown';
@@ -141,10 +128,16 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
   };
 
   const handleVoiceToggle = async () => {
+    console.log('🎤 handleVoiceToggle called, isVoiceActive:', isVoiceActive);
     if (isVoiceActive) {
       // Stop voice conversation
+      console.log('🎤 Stopping voice conversation...');
       setIsVoiceActive(false);
-      stopRealTimeListening();
+      try {
+        await stopRecording();
+      } catch (error) {
+        console.log('No active recording to stop');
+      }
       stopSpeaking();
       toast({
         title: "Voice Chat Ended",
@@ -152,56 +145,22 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
       });
     } else {
       // Start voice conversation with enhanced error handling
+      console.log('🎤 Starting voice conversation...');
       try {
-        // Check if voice is supported
-        if (!voiceSupported) {
-          toast({
-            title: "Voice Not Supported",
-            description: "Voice recognition is not supported in your browser. Please use text input.",
-            variant: "destructive"
-          });
-          return;
-        }
-
-        // Request microphone permission if needed
-        if (!permissionGranted) {
-          const permissionGranted = await requestMicrophonePermission();
-          if (!permissionGranted) {
-            toast({
-              title: "Microphone Permission Required",
-              description: "Voice features require microphone access. Please allow microphone access and try again.",
-              variant: "destructive"
-            });
-            return;
-          }
-        }
-
-        // Show device-specific instructions
-        if (isMobileView) {
-          toast({
-            title: "Mobile Voice Mode",
-            description: isIOS 
-              ? "Tap and hold the microphone button to speak" 
-              : "Tap the microphone button to start voice input",
-            variant: "default"
-          });
-        }
-        
-        await startRealTimeListening();
+        await startRecording();
         setIsVoiceActive(true);
         
         const message = isMobileView 
-          ? "Voice mode active on mobile. Tap to speak."
-          : "I'm listening to you in real-time...";
+          ? "Voice Intelligence mode active on mobile. Tap to speak."
+          : "I'm listening to you with Voice Intelligence emotional analysis...";
           
         toast({
-          title: "Voice Chat Active",
+          title: "Voice Intelligence Chat Active",
           description: message
         });
       } catch (error) {
         console.error('Failed to start voice chat:', error);
         
-        // Provide helpful error messages
         if (isMobileView) {
           toast({
             title: "Mobile Voice Issue",
@@ -220,29 +179,97 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
   };
 
   const handleSendVoiceMessage = async () => {
-    if (!currentTranscript.trim()) return;
+    console.log('🎤 handleSendVoiceMessage called, isRecording:', isRecording);
+    if (!isRecording) {
+      console.log('🎤 Not recording, returning...');
+      return;
+    }
 
-    const userMessage = currentTranscript;
-    setConversationHistory(prev => [...prev, `You: ${userMessage}`]);
-    
     try {
-      const response = await sendMessage(userMessage);
-      setConversationHistory(prev => [...prev, `Zoxaa: ${response}`]);
+      console.log('🎤 Stopping recording to process voice message...');
+      const transcribedText = await stopRecording();
+      console.log('🎤 Transcribed text:', transcribedText);
       
-      // Auto-speak the response with detected emotion
-      await speakWithEmotion(response, currentEmotion);
+      if (transcribedText.trim()) {
+        const userMessage = transcribedText;
+    setConversationHistory(prev => [...prev, `You: ${userMessage}`]);
+        
+        // Enhanced Voice Intelligence emotional analysis
+        const emotionalState = analyzeUserEmotion(userMessage);
+        console.log('🎤 Voice Intelligence Analysis:', {
+          text: userMessage,
+          emotion: emotionalState.primaryEmotion,
+          intensity: emotionalState.emotionalIntensity,
+          crisisLevel: emotionalState.crisisLevel
+        });
+        
+        // Get emotional response based on Voice Intelligence analysis
+        const emotionalResponse = getEmotionalResponse(emotionalState, userMessage);
+        
+        try {
+          console.log('🎤 Sending message to chat...');
+          await sendMessage(userMessage);
+          
+          // Get the last assistant message to speak with Voice Intelligence emotion
+          const lastAssistantMessage = messages
+            .slice()
+            .reverse()
+            .find(msg => msg.role === 'assistant');
+             
+          if (lastAssistantMessage) {
+            console.log('🎤 Speaking assistant response with emotion...');
+            // Speak with full Voice Intelligence emotional adaptation
+            await speakWithEmotion(lastAssistantMessage.content, emotionalState);
+          }
     } catch (error) {
       console.error('Failed to process voice message:', error);
+          toast({
+            title: "Voice Processing Error",
+            description: "I couldn't process your message. Please try again.",
+            variant: "destructive"
+          });
+        }
+      } else {
+        console.log('🎤 No transcribed text, skipping...');
+      }
+    } catch (error) {
+      console.error('Failed to stop recording:', error);
+      toast({
+        title: "Recording Error",
+        description: "I couldn't process your voice. Please try again.",
+        variant: "destructive"
+      });
     }
   };
 
+     // Enhanced Voice Intelligence interruption handling
   const handleInterrupt = () => {
+     console.log('🔄 Voice Intelligence Interruption: User manually interrupted');
     stopSpeaking();
     toast({
       title: "Interrupted",
-      description: "Stopped Zoxaa's response"
+       description: "Stopped ZOXAA's response - Voice Intelligence interruption detected"
     });
   };
+
+   // Real-time Voice Intelligence status monitoring
+   useEffect(() => {
+     if (isListeningForInterruption) {
+       console.log('🎤 Voice Intelligence: Listening for interruptions with adaptive thresholds');
+     }
+   }, [isListeningForInterruption]);
+
+   useEffect(() => {
+     if (isPlaying) {
+       console.log('🗣️ Voice Intelligence: ZOXAA speaking with emotional adaptation');
+     }
+   }, [isPlaying]);
+
+   useEffect(() => {
+     if (isRecording) {
+       console.log('🎙️ Voice Intelligence: Recording user input for emotional analysis');
+     }
+   }, [isRecording]);
 
   return (
     <div className={cn(
@@ -271,121 +298,83 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
             <h2 className={cn(
               "font-semibold",
               isMobileView ? "text-sm" : "text-base"
-            )}>Zoxaa Voice</h2>
+              )}>ZOXAA Voice Intelligence ⚡</h2>
             <p className={cn(
               "text-muted-foreground",
               isMobileView ? "text-xs" : "text-sm"
             )}>
-              {!voiceSupported 
-                ? "Voice not supported - use text input"
-                : !permissionGranted 
-                  ? "Microphone permission needed"
-                  : isVoiceActive 
-                    ? "Real-time voice conversation" 
-                    : "Voice chat ready"
+                               {!isVoiceActive 
+                  ? "Ultra-fast emotional intelligence voice chat ready ⚡" 
+                  : "Real-time emotional voice conversation (optimized)"
               }
             </p>
-          </div>
         </div>
       </div>
 
-      {/* Voice Status Indicator */}
-      {!voiceSupported && (
-        <div className={cn(
-          "bg-yellow-500/10 border-yellow-500/20 border-b",
-          isMobileView ? "p-3" : "p-4"
-        )}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className={cn(
-                "text-yellow-500",
+                 {/* Voice Intelligence Metrics Toggle */}
+         <Button
+           onClick={() => setShowEVI3Metrics(!showEVI3Metrics)}
+           className="text-purple-600 hover:text-purple-700 hover:bg-purple-50 h-9 px-3"
+         >
+           <ActivitySquare className={cn(
                 isMobileView ? "w-4 h-4" : "w-5 h-5"
               )} />
-              <span className={cn(
-                "text-yellow-700 dark:text-yellow-300",
-                isMobileView ? "text-xs" : "text-sm"
-              )}>
-                Voice not supported in this browser. Text input is available.
-              </span>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowBrowserInfo(!showBrowserInfo)}
-              className="text-yellow-600 hover:text-yellow-700"
-            >
-              {showBrowserInfo ? "Hide" : "Info"}
+           {!isMobileView && <span className="ml-1">Voice IQ</span>}
             </Button>
           </div>
           
-          {showBrowserInfo && (
-            <div className="mt-3 p-3 bg-yellow-50 dark:bg-yellow-950/20 rounded-md">
-              <div className="space-y-2 text-xs">
-                <div className="flex justify-between">
-                  <span className="font-medium">Browser:</span>
-                  <span>{getBrowserInfo().browser}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="font-medium">Device:</span>
-                  <span>{getBrowserInfo().device}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="font-medium">Secure Connection:</span>
-                  <span className={getBrowserInfo().secure ? "text-green-600" : "text-red-600"}>
-                    {getBrowserInfo().secure ? "Yes" : "No"}
-                  </span>
-                </div>
-                <div className="mt-2 p-2 bg-yellow-100 dark:bg-yellow-900/20 rounded text-xs">
-                  <p className="font-medium mb-1">Voice Support Tips:</p>
-                  <ul className="space-y-1 text-xs">
-                    <li>• Use Chrome, Safari, or Firefox for best voice support</li>
-                    <li>• Ensure you're on HTTPS or localhost</li>
-                    <li>• Allow microphone permissions when prompted</li>
-                    <li>• Text input works on all browsers</li>
-                  </ul>
-                </div>
-              </div>
+             {/* Voice Intelligence Status Indicator */}
+       {isVoiceActive && (
+        <div className={cn(
+           "bg-purple-500/10 border-purple-500/20 border-b",
+          isMobileView ? "p-3" : "p-4"
+         )}>
+           <div className={cn(
+             "flex items-center justify-between mb-2",
+             isMobileView && "flex-col gap-2 items-start"
+        )}>
+          <div className="flex items-center gap-2">
+               <Brain className={cn(
+                 "text-purple-500",
+                 isMobileView ? "w-3 h-3" : "w-4 h-4"
+            )} />
+            <span className={cn(
+                 "font-medium text-purple-700 dark:text-purple-300",
+              isMobileView ? "text-xs" : "text-sm"
+               )}>ZOXAA Voice Intelligence Active</span>
+        </div>
+          <div className="flex items-center gap-2">
+              <Heart className={cn(
+                currentEmotion === 'joy' ? "text-red-500" : "text-purple-500",
+                isMobileView ? "w-3 h-3" : "w-4 h-4"
+            )} />
+            <span className={cn(
+                "text-purple-700 dark:text-purple-300 capitalize",
+              isMobileView ? "text-xs" : "text-sm"
+              )}>{currentEmotion}</span>
             </div>
-          )}
-        </div>
-      )}
-
-      {voiceSupported && !permissionGranted && (
-        <div className={cn(
-          "bg-blue-500/10 border-blue-500/20 border-b",
-          isMobileView ? "p-3" : "p-4"
-        )}>
-          <div className="flex items-center gap-2">
-            <Mic className={cn(
-              "text-blue-500",
-              isMobileView ? "w-4 h-4" : "w-5 h-5"
-            )} />
-            <span className={cn(
-              "text-blue-700 dark:text-blue-300",
-              isMobileView ? "text-xs" : "text-sm"
-            )}>
-              Microphone permission needed for voice features.
-            </span>
           </div>
-        </div>
-      )}
-
-      {voiceSupported && permissionGranted && (
-        <div className={cn(
-          "bg-green-500/10 border-green-500/20 border-b",
-          isMobileView ? "p-3" : "p-4"
-        )}>
-          <div className="flex items-center gap-2">
-            <CheckCircle className={cn(
-              "text-green-500",
-              isMobileView ? "w-4 h-4" : "w-5 h-5"
-            )} />
-            <span className={cn(
-              "text-green-700 dark:text-green-300",
-              isMobileView ? "text-xs" : "text-sm"
-            )}>
-              Voice features ready. Click to start voice conversation.
-            </span>
+          
+                     {/* Voice Intelligence Features Status */}
+           <div className="flex items-center gap-4 text-xs text-purple-600 dark:text-purple-400">
+             <div className="flex items-center gap-1">
+               <CheckCircle className="w-3 h-3" />
+               <span>Emotional Modulation</span>
+             </div>
+             <div className="flex items-center gap-1">
+               <CheckCircle className="w-3 h-3" />
+               <span>Natural Pauses</span>
+             </div>
+             <div className="flex items-center gap-1">
+               <CheckCircle className="w-3 h-3" />
+               <span>Adaptive Voice</span>
+             </div>
+             {userEmotion.crisisLevel !== 'none' && (
+               <div className="flex items-center gap-1">
+                 <AlertTriangle className="w-3 h-3 text-red-500" />
+                 <span className="text-red-600">Crisis Aware</span>
+               </div>
+             )}
           </div>
         </div>
       )}
@@ -408,17 +397,17 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
               <span className={cn(
                 "font-medium text-accent",
                 isMobileView ? "text-xs" : "text-sm"
-              )}>Voice Activity</span>
+               )}>Voice Intelligence Activity</span>
             </div>
             <div className="flex items-center gap-2">
-              <Heart className={cn(
-                currentEmotion === 'happy' || currentEmotion === 'excited' ? "text-red-500" : "text-muted-foreground",
+              <TrendingUp className={cn(
+                "text-green-500",
                 isMobileView ? "w-3 h-3" : "w-4 h-4"
               )} />
               <span className={cn(
-                "text-muted-foreground capitalize",
-                isMobileView ? "text-xs" : "text-xs"
-              )}>{currentEmotion}</span>
+                "text-muted-foreground",
+                isMobileView ? "text-xs" : "text-sm"
+              )}>Real-time Analysis</span>
             </div>
           </div>
           
@@ -428,7 +417,7 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
                 key={i}
                 className={cn(
                   "flex-1 bg-accent/20 rounded-sm transition-all duration-100",
-                  isListening && voiceActivity > i * 5 && "bg-accent animate-pulse"
+                  isRecording && voiceActivity > i * 5 && "bg-purple-500 animate-pulse"
                 )}
                 style={{
                   height: `${Math.max(10, voiceActivity * 0.3)}%`
@@ -439,14 +428,76 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
         </div>
       )}
 
+             {/* Voice Intelligence Status Indicator */}
+       <div className={cn(
+         "border-b border-border bg-card/30 backdrop-blur-sm",
+         isMobileView ? "p-2" : "p-3"
+       )}>
+         <div className="flex items-center justify-between">
+           <div className="flex items-center gap-3">
+             {/* Voice Intelligence Emotional State */}
+            <div className="flex items-center gap-2">
+              <Heart className={cn(
+                "text-red-500",
+                isMobileView ? "w-4 h-4" : "w-5 h-5"
+              )} />
+              <span className={cn(
+                "font-medium",
+                isMobileView ? "text-xs" : "text-sm"
+              )}>
+                {userEmotion.primaryEmotion.charAt(0).toUpperCase() + userEmotion.primaryEmotion.slice(1)}
+              </span>
+              <div className={cn(
+                "w-2 h-2 rounded-full",
+                userEmotion.crisisLevel === 'critical' ? "bg-red-500 animate-pulse" :
+                userEmotion.stress > 0.7 ? "bg-orange-500" :
+                userEmotion.pleasure > 0.5 ? "bg-green-500" : "bg-blue-500"
+              )} />
+            </div>
+
+                         {/* Voice Intelligence Activity Status */}
+             <div className="flex items-center gap-2">
+               {isRecording && (
+                 <div className="flex items-center gap-1">
+                   <Mic className="w-4 h-4 text-purple-500 animate-pulse" />
+                   <span className="text-xs text-purple-600">Recording</span>
+                 </div>
+               )}
+               {isPlaying && (
+                 <div className="flex items-center gap-1">
+                   <Volume2 className="w-4 h-4 text-green-500" />
+                   <span className="text-xs text-green-600">Speaking</span>
+                 </div>
+               )}
+               {isListeningForInterruption && (
+                 <div className="flex items-center gap-1">
+                   <Activity className="w-4 h-4 text-blue-500 animate-pulse" />
+                   <span className="text-xs text-blue-600">Listening</span>
+                 </div>
+               )}
+             </div>
+           </div>
+
+           {/* Voice Intelligence Metrics */}
+          <div className="flex items-center gap-2">
+            <div className="text-xs text-muted-foreground">
+              Intensity: {(userEmotion.emotionalIntensity * 100).toFixed(0)}%
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Stress: {(userEmotion.stress * 100).toFixed(0)}%
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Messages */}
       <div className={cn(
         "flex-1 overflow-y-auto space-y-4",
         isMobileView ? "p-3" : "p-4"
       )}>
-        {messages.map((message) => (
+        {messages.map((message, index) => (
           <div
-            key={message.id}
+            key={index}
             className={cn(
               "flex gap-3",
               message.role === "user" ? "justify-end" : "justify-start"
@@ -485,7 +536,7 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
                   <span className={cn(
                     isMobileView ? "text-xs" : "text-xs"
                   )}>
-                    {message.timestamp.toLocaleTimeString([], { 
+                    {new Date().toLocaleTimeString([], { 
                       hour: '2-digit', 
                       minute: '2-digit' 
                     })}
@@ -510,7 +561,7 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
           </div>
         ))}
 
-        {isThinking && (
+        {isLoading && (
           <div className="flex gap-3 justify-start">
             <Avatar className={cn(
               "bg-gradient-primary",
@@ -530,22 +581,22 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
               <div className="flex items-center gap-2">
                 <div className="flex gap-1">
                   <div className={cn(
-                    "bg-primary rounded-full animate-bounce [animation-delay:-0.3s]",
+                    "bg-purple-500 rounded-full animate-bounce [animation-delay:-0.3s]",
                     isMobileView ? "w-1.5 h-1.5" : "w-2 h-2"
                   )}></div>
                   <div className={cn(
-                    "bg-primary rounded-full animate-bounce [animation-delay:-0.15s]",
+                    "bg-purple-500 rounded-full animate-bounce [animation-delay:-0.15s]",
                     isMobileView ? "w-1.5 h-1.5" : "w-2 h-2"
                   )}></div>
                   <div className={cn(
-                    "bg-primary rounded-full animate-bounce",
+                    "bg-purple-500 rounded-full animate-bounce",
                     isMobileView ? "w-1.5 h-1.5" : "w-2 h-2"
                   )}></div>
                 </div>
                 <span className={cn(
                   "text-muted-foreground",
                   isMobileView ? "text-xs" : "text-sm"
-                )}>Zoxaa is thinking...</span>
+                                 )}>ZOXAA Voice Intelligence is thinking...</span>
               </div>
             </Card>
           </div>
@@ -561,67 +612,40 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
       )}>
         {isVoiceActive ? (
           <div className="space-y-4">
-            {/* Current Transcript Display */}
-            {currentTranscript && (
-              <Card className={cn(
-                "bg-accent/10 border-accent/20",
-                isMobileView ? "p-2" : "p-3"
-              )}>
-                <div className="flex items-center gap-2 mb-2">
-                  <BarChart3 className={cn(
-                    "text-accent",
-                    isMobileView ? "w-3 h-3" : "w-4 h-4"
-                  )} />
-                  <span className={cn(
-                    "font-medium text-accent",
-                    isMobileView ? "text-xs" : "text-sm"
-                  )}>You're saying:</span>
-                </div>
-                <p className={cn(
-                  "text-muted-foreground",
-                  isMobileView ? "text-xs" : "text-sm"
-                )}>{currentTranscript}</p>
-                <div className={cn(
-                  "flex gap-2 mt-3",
-                  isMobileView && "flex-col"
-                )}>
-                  <Button
-                    size={isMobileView ? "sm" : "sm"}
-                    onClick={handleSendVoiceMessage}
-                    disabled={!currentTranscript.trim()}
-                    className={isMobileView ? "w-full" : ""}
-                  >
-                    <Zap className={cn(
-                      "mr-1",
-                      isMobileView ? "w-3 h-3" : "w-4 h-4"
-                    )} />
-                    Send
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size={isMobileView ? "sm" : "sm"}
-                    onClick={() => window.speechSynthesis?.cancel()}
-                    className={isMobileView ? "w-full" : ""}
-                  >
-                    Clear
-                  </Button>
-                </div>
-              </Card>
-            )}
-
             {/* Voice Control Buttons */}
             <div className={cn(
               "flex items-center justify-center gap-4",
               isMobileView && "flex-col gap-2"
             )}>
               <Button
-                variant={isSpeaking ? "destructive" : "secondary"}
-                size={isMobileView ? "default" : "lg"}
-                onClick={isSpeaking ? handleInterrupt : undefined}
-                disabled={!isSpeaking}
-                className={isMobileView ? "w-full" : ""}
+                onClick={isRecording ? handleSendVoiceMessage : startRecording}
+                className={cn(
+                  isRecording ? "bg-purple-600 hover:bg-purple-700" : "bg-green-600 hover:bg-green-700",
+                  isMobileView ? "h-10 px-4 py-2 w-full" : "h-11 px-8 py-2"
+                )}
               >
-                {isSpeaking ? (
+                {isRecording ? (
+                  <>
+                    <Mic className={cn("mr-2", isMobileView ? "w-4 h-4" : "w-5 h-5")} />
+                    Send Voice Message
+                  </>
+                ) : (
+                  <>
+                    <Mic className={cn("mr-2", isMobileView ? "w-4 h-4" : "w-5 h-5")} />
+                    Start Recording
+                  </>
+                )}
+              </Button>
+
+              <Button
+                onClick={isPlaying ? handleInterrupt : undefined}
+                disabled={!isPlaying}
+                className={cn(
+                  isPlaying ? "bg-destructive hover:bg-destructive/90" : "bg-secondary hover:bg-secondary/80",
+                  isMobileView ? "h-10 px-4 py-2 w-full" : "h-11 px-8 py-2"
+                )}
+              >
+                {isPlaying ? (
                   <>
                     <VolumeX className={cn("mr-2", isMobileView ? "w-4 h-4" : "w-5 h-5")} />
                     Interrupt
@@ -635,16 +659,14 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
               </Button>
 
               <Button
-                variant="destructive"
-                size={isMobileView ? "default" : "lg"}
                 onClick={handleVoiceToggle}
                 className={cn(
-                  "animate-pulse",
-                  isMobileView && "w-full"
+                  "bg-destructive hover:bg-destructive/90 animate-pulse",
+                  isMobileView ? "h-10 px-4 py-2 w-full" : "h-11 px-8 py-2"
                 )}
               >
                 <MicOff className={cn("mr-2", isMobileView ? "w-4 h-4" : "w-5 h-5")} />
-                End Voice Chat
+                                 End Voice Intelligence Chat
               </Button>
             </div>
 
@@ -656,23 +678,30 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
               <div className="flex items-center gap-1">
                 <div className={cn(
                   "w-2 h-2 rounded-full",
-                  isListening ? "bg-green-500 animate-pulse" : "bg-muted"
+                  isRecording ? "bg-green-500 animate-pulse" : "bg-muted"
                 )} />
                 <span>Listening</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className={cn(
                   "w-2 h-2 rounded-full",
-                  isSpeaking ? "bg-blue-500 animate-pulse" : "bg-muted"
+                  isPlaying ? "bg-purple-500 animate-pulse" : "bg-muted"
                 )} />
                 <span>Speaking</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className={cn(
                   "w-2 h-2 rounded-full",
-                  isThinking ? "bg-yellow-500 animate-pulse" : "bg-muted"
+                  isLoading ? "bg-yellow-500 animate-pulse" : "bg-muted"
                 )} />
                 <span>Thinking</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className={cn(
+                  "w-2 h-2 rounded-full",
+                  isListeningForInterruption ? "bg-blue-500 animate-pulse" : "bg-muted"
+                )} />
+                                 <span>Voice IQ Active</span>
               </div>
             </div>
           </div>
@@ -683,113 +712,57 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
                 "font-semibold mb-2",
                 isMobileView ? "text-sm" : "text-base"
               )}>
-                {!voiceSupported 
-                  ? "Voice Not Supported"
-                  : !permissionGranted 
-                    ? "Microphone Permission Needed"
-                    : "Start Voice Conversation"
-                }
+                                 Start Voice Intelligence Conversation
               </h3>
               <p className={cn(
                 "text-muted-foreground mb-4",
                 isMobileView ? "text-xs" : "text-sm"
               )}>
-                {!voiceSupported 
-                  ? "Your browser doesn't support voice recognition. Please use text input to chat with Zoxaa."
-                  : !permissionGranted 
-                    ? "Allow microphone access to use voice features with Zoxaa."
-                    : "Have a natural conversation with Zoxaa using your voice"
-                }
+                                 Experience ZOXAA with advanced emotional intelligence and natural voice interaction
               </p>
             </div>
             
-            {!voiceSupported ? (
-              <div className="w-full space-y-3">
-                <div className="text-center mb-2">
-                  <p className={cn(
-                    "text-muted-foreground",
-                    isMobileView ? "text-xs" : "text-sm"
-                  )}>
-                    Use text input to chat with Zoxaa
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Type your message..."
-                    className="flex-1"
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                        sendMessage(e.currentTarget.value.trim());
-                        e.currentTarget.value = '';
-                      }
-                    }}
-                  />
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      const input = document.querySelector('input[placeholder="Type your message..."]') as HTMLInputElement;
-                      if (input && input.value.trim()) {
-                        sendMessage(input.value.trim());
-                        input.value = '';
-                      }
-                    }}
-                  >
-                    Send
-                  </Button>
-                </div>
-                <Button
-                  variant="secondary"
-                  size={isMobileView ? "default" : "lg"}
-                  onClick={() => window.location.href = '/chat'}
-                  className={isMobileView && "w-full"}
-                >
-                  <MessageCircle className={cn("mr-2", isMobileView ? "w-4 h-4" : "w-5 h-5")} />
-                  Go to Text Chat
-                </Button>
-              </div>
-            ) : !permissionGranted ? (
               <Button
-                variant="empathy"
-                size={isMobileView ? "default" : "lg"}
-                onClick={requestMicrophonePermission}
-                className={isMobileView && "w-full max-w-xs"}
-              >
-                <Mic className={cn("mr-2", isMobileView ? "w-4 h-4" : "w-5 h-5")} />
-                Allow Microphone Access
-              </Button>
-            ) : (
-              <Button
-                variant="empathy"
-                size={isMobileView ? "default" : "lg"}
                 onClick={handleVoiceToggle}
                 className={cn(
-                  "animate-pulse",
-                  isMobileView && "w-full max-w-xs"
+                "bg-purple-600 hover:bg-purple-700 animate-pulse",
+                isMobileView ? "h-10 px-4 py-2 w-full max-w-xs" : "h-11 px-8 py-2"
                 )}
               >
-                <Mic className={cn("mr-2", isMobileView ? "w-4 h-4" : "w-5 h-5")} />
-                Start Voice Chat
+              <Brain className={cn("mr-2", isMobileView ? "w-4 h-4" : "w-5 h-5")} />
+                             Start Voice Intelligence Chat
               </Button>
-            )}
           </div>
         )}
 
         <p className="text-xs text-muted-foreground mt-4 text-center">
-          {!voiceSupported 
-            ? "Voice features not available • Text input provided as alternative"
-            : !permissionGranted 
-              ? "Microphone access required for voice features"
-              : isVoiceActive 
+          {isVoiceActive 
                 ? isMobileView 
-                  ? "Mobile voice mode • Tap to speak • Text input available"
-                  : "Real-time voice conversation • Emotion-aware responses • Natural flow"
+               ? "Voice Intelligence mobile mode • Tap to speak • Advanced emotional intelligence"
+               : "Voice Intelligence real-time conversation • Emotional adaptation • Natural flow"
                 : isMobileView
-                  ? "Tap to start voice conversation with Zoxaa"
-                  : "Click to start a voice conversation with Zoxaa"
+               ? "Tap to start Voice Intelligence conversation with ZOXAA"
+               : "Click to start a Voice Intelligence conversation with ZOXAA"
           }
         </p>
       </div>
+
+             {/* Voice Intelligence Quality Indicator */}
+      {showEVI3Metrics && (
+        <VoiceQualityIndicator
+          audioLevel={audioLevel}
+          isListening={isRecording}
+          isSpeaking={isPlaying}
+          emotionalState={userEmotion}
+          conversationInsights={conversationInsights}
+          evi3Features={{
+            emotionalModulation: true,
+            naturalPauses: true,
+            adaptiveVoice: true,
+            crisisAware: userEmotion.crisisLevel !== 'none'
+          }}
+        />
+      )}
     </div>
   );
 };

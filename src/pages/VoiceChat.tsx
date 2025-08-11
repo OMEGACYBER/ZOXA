@@ -1,358 +1,249 @@
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { 
-  Phone, 
-  PhoneOff, 
-  Mic, 
-  MicOff, 
-  Volume2, 
-  VolumeX,
-  Brain,
-  User,
-  Activity,
-  BarChart3,
-  MessageCircle,
-  ArrowLeft
-} from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Phone, PhoneOff, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import useZoxaaChat from "@/hooks/useZoxaaChat";
-import useRealTimeVoice from "@/hooks/useRealTimeVoice";
-import { useNavigate } from "react-router-dom";
+import useZoxaaVoice from "@/hooks/useZoxaaVoice";
+import { useZoxaaChat } from "@/hooks/useZoxaaChat";
 
-const VoiceChat = () => {
+// Add local chat API helper
+async function chatWithZoxaaAPI(userText: string, systemPrompt: string): Promise<string> {
+  const resp = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages: [{ role: 'user', content: userText }], systemPrompt })
+  });
+  const data = await resp.json();
+  return data.response || '';
+}
+
+const VoiceChat: React.FC = () => {
   const [callActive, setCallActive] = useState(false);
-  const [conversationHistory, setConversationHistory] = useState<string[]>([]);
-  const [callDuration, setCallDuration] = useState(0);
-  const [voiceActivity, setVoiceActivity] = useState(0);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [zoxaaResponse, setZoxaaResponse] = useState('');
+  const hasGreetedRef = useRef(false);
   
-  const callTimerRef = useRef<NodeJS.Timeout | null>(null);
   const { toast } = useToast();
-  const navigate = useNavigate();
-
-  // Custom hooks
-  const { sendMessage } = useZoxaaChat();
-  const { 
-    startRealTimeListening, 
-    stopRealTimeListening, 
-    speakWithEmotion, 
-    stopSpeaking,
-    currentTranscript,
-    isListening,
-    isSpeaking,
-    clearTranscript
-  } = useRealTimeVoice();
-
-  // Call duration timer
-  useEffect(() => {
-    if (callActive) {
-      callTimerRef.current = setInterval(() => {
-        setCallDuration(prev => prev + 1);
-      }, 1000);
-    } else {
-      if (callTimerRef.current) {
-        clearInterval(callTimerRef.current);
-      }
-      setCallDuration(0);
-    }
-
-    return () => {
-      if (callTimerRef.current) {
-        clearInterval(callTimerRef.current);
-      }
-    };
-  }, [callActive]);
-
-  // Voice activity simulation
-  useEffect(() => {
-    if (isListening) {
-      const interval = setInterval(() => {
-        setVoiceActivity(Math.random() * 100);
-      }, 100);
-      return () => clearInterval(interval);
-    } else {
-      setVoiceActivity(0);
-    }
-  }, [isListening]);
-
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  const { chatWithZoxaa } = useZoxaaChat();
+  
+  const {
+    isRecording,
+    isPlaying,
+    startRecording,
+    stopRecording,
+    speakWithEmotion,
+    analyzeUserEmotion,
+    interruptedRef,
+    audioLevel
+  } = useZoxaaVoice();
 
   const startCall = async () => {
+    setCallActive(true);
+    hasGreetedRef.current = false;
+    toast({
+      title: "Call Started",
+      description: "ZOXAA is ready to chat with you ✨"
+    });
+
     try {
-      setCallActive(true);
+      await startRecording();
       
-      // Start listening
-      await startRealTimeListening();
-      
-      // ZOXAA starts the conversation
-      const welcomeMessage = "Hello! I'm ZOXAA. I'm ready to have a real-time conversation with you. Just start talking whenever you're ready!";
-      await speakWithEmotion(welcomeMessage, 'excited');
-      
-      setConversationHistory(prev => [...prev, `ZOXAA: ${welcomeMessage}`]);
-      
-      toast({
-        title: "Call Started",
-        description: "ZOXAA is ready to talk with you!"
-      });
+      // Speak brief greeting while recording continues
+      const greeting = "Hey! I'm ZOXAA. How are you feeling right now?";
+      await speakWithEmotion(greeting);
+      setZoxaaResponse(greeting);
+      hasGreetedRef.current = true;
     } catch (error) {
-      console.error('Failed to start call:', error);
-      toast({
-        title: "Call Failed",
-        description: "Unable to start voice call. Please check your microphone permissions.",
-        variant: "destructive"
-      });
+      console.error('Failed to start recording:', error);
     }
   };
 
   const endCall = () => {
     setCallActive(false);
-    stopRealTimeListening();
-    stopSpeaking();
+    hasGreetedRef.current = false;
+    setZoxaaResponse('');
+    
+    if (isRecording) {
+      stopRecording().catch(() => {});
+    }
     
     toast({
       title: "Call Ended",
-      description: "Voice conversation ended."
+      description: "Thank you for chatting with ZOXAA 💙"
     });
   };
 
-  const handleVoiceInput = async (transcript: string) => {
-    if (!transcript.trim() || isProcessing) return;
+  const handleUserSpeech = async (transcribedText: string) => {
+    if (!transcribedText.trim()) return;
 
-    console.log('Processing voice input:', transcript);
-    setIsProcessing(true);
-    setConversationHistory(prev => [...prev, `You: ${transcript}`]);
-    
     try {
-      // Send to ZOXAA and get response
-      console.log('Sending message to ZOXAA...');
-      const response = await sendMessage(transcript);
-      console.log('ZOXAA response:', response);
+      if (!hasGreetedRef.current) {
+        hasGreetedRef.current = true;
+      }
       
-      // Speak the response
-      console.log('Speaking response...');
-      await speakWithEmotion(response, 'neutral');
+      // Analyze user emotion to drive voice behavior
+      const detectedEmotion = await analyzeUserEmotion(transcribedText);
       
-      setConversationHistory(prev => [...prev, `ZOXAA: ${response}`]);
+      // Simple ZOXAA system prompt
+      const simplePrompt = `You are ZOXAA, a warm and caring AI companion. Keep responses natural and conversational (1-2 sentences max). Be supportive and friendly.`;
+
+      const response = await chatWithZoxaaAPI(transcribedText, simplePrompt);
       
-      // Clear the transcript after processing
-      clearTranscript();
+      if (response && response.trim()) {
+        await speakWithEmotion(response, detectedEmotion);
+        setZoxaaResponse(response);
+      } else {
+        const fallback = "I hear you, and I'm here for you. Tell me more about what's on your mind.";
+        await speakWithEmotion(fallback, detectedEmotion);
+        setZoxaaResponse(fallback);
+      }
+      
     } catch (error) {
-      console.error('Failed to process voice input:', error);
-    } finally {
-      setIsProcessing(false);
+      console.error('Error processing user speech:', error);
+      toast({
+        title: "Error",
+        description: "I couldn't process that. Please try again.",
+        variant: "destructive"
+      });
     }
   };
 
-  // Auto-send when user stops speaking
+  // Continuous recording - restart after ZOXAA finishes speaking
   useEffect(() => {
-    if (currentTranscript && currentTranscript.trim() && !isProcessing) {
-      console.log('Voice input detected:', currentTranscript);
-      
-          // Auto-send after 0.1 seconds of silence for ultra-fast response
-    const timer = setTimeout(() => {
-      console.log('Auto-sending voice input:', currentTranscript);
-      handleVoiceInput(currentTranscript);
-    }, 100); // 0.1 seconds of silence for ultra-fast response
-
+    if (callActive && !isPlaying && !isRecording && hasGreetedRef.current) {
+      const timer = setTimeout(() => {
+        startRecording().catch((err) => {
+          console.error('Failed to restart recording:', err);
+        });
+      }, 40);
       return () => clearTimeout(timer);
     }
-  }, [currentTranscript, isProcessing]);
+  }, [callActive, isPlaying, isRecording, hasGreetedRef.current, startRecording]);
+
+  // Real-time pause detection tuned for more natural flow
+  useEffect(() => {
+    if (callActive && isRecording && !isPlaying) {
+      let silenceTimer: NodeJS.Timeout | null = null;
+      let hasSpoken = false;
+      let consecutiveSilence = 0;
+      
+      const checkForSpeech = () => {
+        const currentLevel = audioLevel;
+        
+        // Detect if user is speaking (audio level above threshold)
+        if (currentLevel > 0.12) {
+          hasSpoken = true;
+          consecutiveSilence = 0;
+          
+          if (silenceTimer) {
+            clearTimeout(silenceTimer);
+            silenceTimer = null;
+          }
+        } else if (hasSpoken) {
+          consecutiveSilence++;
+          
+          // Process after ~350ms of silence
+          if (consecutiveSilence >= 4 && !silenceTimer) {
+            silenceTimer = setTimeout(async () => {
+              try {
+                const transcribedText = await stopRecording();
+                if (transcribedText && transcribedText.trim()) {
+                  if (interruptedRef?.current) {
+                    interruptedRef.current = false;
+                    await handleUserSpeech(`Oh okay, so ${transcribedText}`);
+                  } else {
+                    await handleUserSpeech(transcribedText);
+                  }
+                }
+                setTimeout(() => {
+                  if (callActive && !isRecording) {
+                    startRecording().catch(() => {});
+                  }
+                }, 120);
+              } catch (err) {
+                console.error('Failed to process speech:', err);
+                setTimeout(() => {
+                  if (callActive && !isRecording) {
+                    startRecording().catch(() => {});
+                  }
+                }, 120);
+              }
+            }, 350);
+          }
+        }
+      };
+      
+      const interval = setInterval(checkForSpeech, 90);
+      
+      return () => {
+        clearInterval(interval);
+        if (silenceTimer) {
+          clearTimeout(silenceTimer);
+        }
+      };
+    }
+  }, [callActive, isRecording, isPlaying, stopRecording, startRecording, interruptedRef, audioLevel]);
 
   return (
-    <div className="h-screen bg-gradient-background flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-border bg-card/50 backdrop-blur-sm">
-        <div className="flex items-center gap-3">
-          <Button 
-            variant="ghost" 
-            size="icon"
-            onClick={() => navigate('/chat')}
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
-          <Avatar className="w-10 h-10 bg-gradient-primary">
-            <AvatarFallback className="bg-transparent">
-              <Brain className="w-5 h-5 text-primary-foreground" />
-            </AvatarFallback>
-          </Avatar>
-          <div>
-            <h1 className="font-semibold">ZOXAA Voice Call</h1>
-            <p className="text-sm text-muted-foreground">
-              {callActive ? `Call duration: ${formatDuration(callDuration)}` : "Real-time voice conversation"}
-            </p>
-          </div>
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center p-4">
+      <div className="max-w-md w-full space-y-8">
+        {/* Simple Header */}
+        <div className="text-center">
+          <h1 className="text-3xl font-bold text-gray-800 mb-2">ZOXAA</h1>
+          <p className="text-gray-600">Your AI Companion</p>
         </div>
 
-
-      </div>
-
-      {/* Main Call Interface */}
-      <div className="flex-1 flex flex-col items-center justify-center p-8">
-        {!callActive ? (
-          // Call Start Screen
-          <div className="text-center space-y-6">
-            <div className="w-32 h-32 bg-gradient-primary rounded-full flex items-center justify-center mx-auto mb-6">
-              <Brain className="w-16 h-16 text-primary-foreground" />
-            </div>
-            
-            <div className="space-y-4">
-              <h2 className="text-2xl font-bold">Start Voice Call</h2>
-              <p className="text-muted-foreground max-w-md">
-                Have a natural, real-time conversation with ZOXAA. 
-                Just press start and begin talking - no buttons needed!
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              <Button 
-                size="lg" 
-                onClick={startCall}
-                className="bg-gradient-primary text-primary-foreground hover:bg-gradient-primary/90"
-              >
-                <Phone className="w-5 h-5 mr-2" />
-                Start Call with ZOXAA
-              </Button>
-              
-              
-            </div>
-          </div>
-        ) : (
-          // Active Call Screen
-          <div className="w-full max-w-2xl space-y-6">
-            {/* Voice Activity Visualization */}
-            <Card className="p-6 bg-accent/10 border-accent/20">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-accent" />
-                  <span className="text-sm font-medium text-accent">Voice Activity</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className={cn(
-                    "w-2 h-2 rounded-full",
-                    isListening ? "bg-green-500 animate-pulse" : "bg-muted"
-                  )} />
-                  <span className="text-xs text-muted-foreground">
-                    {isListening ? "Listening" : "Idle"}
+        {/* Main Call Interface */}
+        <div className="bg-white rounded-2xl shadow-xl p-8 space-y-6">
+          {/* Simple Status Display */}
+          <div className="text-center space-y-2">
+            {callActive ? (
+              <>
+                <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
+                  {isRecording && <Mic className="w-4 h-4 text-red-500 animate-pulse" />}
+                  {isPlaying && <Volume2 className="w-4 h-4 text-blue-500 animate-pulse" />}
+                  <span>
+                    {isRecording ? "Listening..." : isPlaying ? "ZOXAA is speaking..." : "Ready"}
                   </span>
                 </div>
-              </div>
-              
-              <div className="flex items-center gap-1 h-8">
-                {Array.from({ length: 20 }, (_, i) => (
-                  <div
-                    key={i}
-                    className={cn(
-                      "flex-1 bg-accent/20 rounded-sm transition-all duration-100",
-                      isListening && voiceActivity > i * 5 && "bg-accent animate-pulse"
-                    )}
-                    style={{
-                      height: `${Math.max(10, voiceActivity * 0.3)}%`
-                    }}
-                  />
-                ))}
-              </div>
-            </Card>
+              </>
+            ) : (
+              <p className="text-gray-500">Tap to start your conversation</p>
+            )}
+          </div>
 
-                         {/* Current Transcript */}
-             {currentTranscript && (
-               <Card className="p-4 bg-primary/10 border-primary/20">
-                 <div className="flex items-center gap-2 mb-2">
-                   <BarChart3 className="w-4 h-4 text-primary" />
-                   <span className="text-sm font-medium text-primary">You're saying:</span>
-                 </div>
-                 <p className="text-sm text-muted-foreground">{currentTranscript}</p>
-               </Card>
-             )}
-
-            {/* Call Controls */}
-            <div className="flex items-center justify-center gap-4">
+          {/* Call Controls */}
+          <div className="flex justify-center">
+            {callActive ? (
               <Button
-                variant={isSpeaking ? "destructive" : "secondary"}
-                size="lg"
-                onClick={isSpeaking ? stopSpeaking : undefined}
-                disabled={!isSpeaking}
-              >
-                {isSpeaking ? (
-                  <>
-                    <VolumeX className="w-5 h-5 mr-2" />
-                    Stop ZOXAA
-                  </>
-                ) : (
-                  <>
-                    <Volume2 className="w-5 h-5 mr-2" />
-                    ZOXAA Speaking
-                  </>
-                )}
-              </Button>
-
-              <Button
-                variant="destructive"
-                size="lg"
                 onClick={endCall}
-                className="animate-pulse"
+                size="lg"
+                variant="destructive"
+                className="px-8 py-4 rounded-full"
               >
                 <PhoneOff className="w-5 h-5 mr-2" />
                 End Call
               </Button>
-            </div>
-
-                         {/* Status Indicators */}
-             <div className="flex items-center justify-center gap-6 text-xs text-muted-foreground">
-               <div className="flex items-center gap-1">
-                 <div className={cn(
-                   "w-2 h-2 rounded-full",
-                   isListening ? "bg-green-500 animate-pulse" : "bg-muted"
-                 )} />
-                 <span>Listening</span>
-               </div>
-               <div className="flex items-center gap-1">
-                 <div className={cn(
-                   "w-2 h-2 rounded-full",
-                   isSpeaking ? "bg-blue-500 animate-pulse" : "bg-muted"
-                 )} />
-                 <span>Speaking</span>
-               </div>
-               <div className="flex items-center gap-1">
-                 <div className={cn(
-                   "w-2 h-2 rounded-full",
-                   currentTranscript ? "bg-yellow-500 animate-pulse" : "bg-muted"
-                 )} />
-                 <span>Voice Detected</span>
-               </div>
-             </div>
-          </div>
-        )}
-      </div>
-
-      {/* Conversation History */}
-      {callActive && conversationHistory.length > 0 && (
-        <div className="h-48 overflow-y-auto p-4 border-t border-border bg-card/50">
-          <h3 className="font-semibold mb-2">Conversation</h3>
-          <div className="space-y-2">
-            {conversationHistory.map((message, index) => (
-              <div key={index} className="text-sm">
-                <span className="text-muted-foreground">{message}</span>
-              </div>
-            ))}
+            ) : (
+              <Button
+                onClick={startCall}
+                size="lg"
+                variant="default"
+                className="px-8 py-4 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+              >
+                <Phone className="w-5 h-5 mr-2" />
+                Start Call
+              </Button>
+            )}
           </div>
         </div>
-      )}
 
-      {/* Footer */}
-      <div className="p-4 border-t border-border bg-card/50">
-        <p className="text-xs text-muted-foreground text-center">
-          {callActive 
-            ? "Real-time voice conversation • Natural interruptions • Continuous flow"
-            : "Click to start a real-time voice conversation with ZOXAA"
-          }
-        </p>
+        {/* Simple Instructions */}
+        <div className="text-center text-sm text-gray-500">
+          {callActive ? (
+            <p>Just talk naturally - ZOXAA will respond automatically</p>
+          ) : (
+            <p>Start a voice conversation with your AI companion</p>
+          )}
+        </div>
       </div>
     </div>
   );
