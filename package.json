@@ -8,9 +8,10 @@
     "dev:frontend": "vite",
     "build": "tsc && vite build",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview",
+    "preview": "vite preview --port 5173",
     "start": "npm run dev",
-    "deploy": "npm run build && vercel --prod"
+    "deploy": "npm run build && vercel --prod",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.2",
@@ -45,6 +46,7 @@
     "@radix-ui/react-tooltip": "^1.1.4",
     "@supabase/supabase-js": "^2.53.0",
     "@tanstack/react-query": "^5.56.2",
+    "@sentry/node": "^8.24.0",
     "axios": "^1.11.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -73,6 +75,7 @@
   "devDependencies": {
     "@capacitor/cli": "^7.4.2",
     "@eslint/js": "^9.9.0",
+    "@playwright/test": "^1.46.1",
     "@tailwindcss/typography": "^0.5.15",
     "@types/node": "^22.17.1",
     "@types/react": "^18.3.3",
