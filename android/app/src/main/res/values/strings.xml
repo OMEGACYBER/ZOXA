@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ZOXAA - AI Companion</string>
+    <string name="title_activity_main">ZOXAA - AI Companion</string>
+    <string name="package_name">com.zoxaa.cognipartner</string>
+    <string name="custom_url_scheme">com.zoxaa.cognipartner</string>
+</resources>

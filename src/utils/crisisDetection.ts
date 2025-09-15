@@ -155,8 +155,8 @@ export class CrisisDetectionSystem {
   // Main crisis detection method
   detectCrisis(
     text: string,
-    voiceData?: any,
-    behavioralData?: any,
+    voiceData?: unknown,
+    behavioralData?: unknown,
     sessionDuration?: number
   ): CrisisIndicators {
     const textIndicators = this.analyzeTextCrisis(text);
@@ -261,7 +261,7 @@ export class CrisisDetectionSystem {
     return indicators;
   }
 
-  private analyzeVoiceCrisis(voiceData?: any): VoiceCrisisIndicators {
+  private analyzeVoiceCrisis(voiceData?: unknown): VoiceCrisisIndicators {
     if (!voiceData) {
       return {
         voiceStress: 0,
@@ -302,7 +302,7 @@ export class CrisisDetectionSystem {
     };
   }
 
-  private analyzeBehavioralCrisis(behavioralData?: any, sessionDuration?: number): BehavioralCrisisIndicators {
+  private analyzeBehavioralCrisis(behavioralData?: unknown, sessionDuration?: number): BehavioralCrisisIndicators {
     const sessionTime = sessionDuration || (Date.now() - this.sessionStartTime) / 1000;
     
     // Analyze recent crisis history for behavioral patterns
@@ -406,28 +406,28 @@ export class CrisisDetectionSystem {
   }
 
   // Voice analysis helper methods
-  private calculateVoiceStress(voiceData: any): number {
+  private calculateVoiceStress(voiceData: unknown): number {
     // Simplified voice stress calculation
     return voiceData?.stress || 0;
   }
 
-  private calculateBreathIrregularity(voiceData: any): number {
+  private calculateBreathIrregularity(voiceData: unknown): number {
     return voiceData?.breathIrregularity || 0;
   }
 
-  private calculateVoiceTremor(voiceData: any): number {
+  private calculateVoiceTremor(voiceData: unknown): number {
     return voiceData?.tremor || 0;
   }
 
-  private calculatePitchInstability(voiceData: any): number {
+  private calculatePitchInstability(voiceData: unknown): number {
     return voiceData?.pitchInstability || 0;
   }
 
-  private calculateVolumeInconsistency(voiceData: any): number {
+  private calculateVolumeInconsistency(voiceData: unknown): number {
     return voiceData?.volumeInconsistency || 0;
   }
 
-  private calculateSpeechRate(voiceData: any): number {
+  private calculateSpeechRate(voiceData: unknown): number {
     return voiceData?.speechRate || 0;
   }
 
@@ -449,7 +449,7 @@ export class CrisisDetectionSystem {
     return Math.min(1, variance / 4);
   }
 
-  private calculateWithdrawal(behavioralData: any, sessionTime: number): number {
+  private calculateWithdrawal(behavioralData: unknown, sessionTime: number): number {
     // Analyze response patterns for withdrawal signs
     return behavioralData?.withdrawal || 0;
   }

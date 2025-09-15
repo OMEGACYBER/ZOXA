@@ -36,8 +36,8 @@ export interface SynthesisRequest {
 }
 
 export class AdvancedVoiceSynthesis {
-  private voiceCache: Map<string, any> = new Map();
-  private emotionToProsody: Map<string, any> = new Map();
+  private voiceCache: Map<string, unknown> = new Map();
+  private emotionToProsody: Map<string, unknown> = new Map();
   private naturalPausePatterns: RegExp[] = [];
   private emphasisWords: Set<string> = new Set();
   
@@ -83,7 +83,7 @@ export class AdvancedVoiceSynthesis {
   }
 
   // 🎭 Apply emotional modulation based on context
-  private applyEmotionalModulation(modulation: VoiceModulation, context: any): VoiceModulation {
+  private applyEmotionalModulation(modulation: VoiceModulation, context: unknown): VoiceModulation {
     const { conversationFlow, turnNumber, userEmotion, relationshipDepth } = context;
     
     // Base emotional mapping
@@ -92,7 +92,7 @@ export class AdvancedVoiceSynthesis {
     
     // Apply emotion-specific adjustments
     Object.entries(emotionMapping).forEach(([key, value]) => {
-      if (enhancedModulation.hasOwnProperty(key)) {
+      if (Object.prototype.hasOwnProperty.call(enhancedModulation, key)) {
         enhancedModulation[key as keyof VoiceModulation] = value as number;
       }
     });
@@ -176,7 +176,7 @@ export class AdvancedVoiceSynthesis {
   }
 
   // ⚡ Apply natural speech patterns
-  private applyNaturalPatterns(modulation: VoiceModulation, context: any): VoiceModulation {
+  private applyNaturalPatterns(modulation: VoiceModulation, context: unknown): VoiceModulation {
     const { turnNumber, userEmotion } = context;
     
     // Add subtle variations to avoid robotic speech
@@ -354,10 +354,11 @@ export class AdvancedVoiceSynthesis {
   }
 
   // 📊 Get synthesis statistics
-  getSynthesisStats(): any {
+  getSynthesisStats(): { cacheSize: number; emotionMappings: number; patterns: number; emphasisWords: number; pausePatterns: number } {
     return {
       cacheSize: this.voiceCache.size,
       emotionMappings: this.emotionToProsody.size,
+      patterns: this.naturalPausePatterns.length,
       emphasisWords: this.emphasisWords.size,
       pausePatterns: this.naturalPausePatterns.length
     };

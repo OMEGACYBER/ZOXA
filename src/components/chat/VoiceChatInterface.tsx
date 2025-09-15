@@ -88,8 +88,7 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
     stopRecording, 
     speakWithEmotion, 
     stopSpeaking,
-    analyzeUserEmotion,
-    getEmotionalResponse
+    analyzeUserEmotion
   } = useZoxaaVoice();
 
   const scrollToBottom = () => {
@@ -195,16 +194,13 @@ const VoiceChatInterface = ({ className }: VoiceChatInterfaceProps) => {
     setConversationHistory(prev => [...prev, `You: ${userMessage}`]);
         
         // Enhanced Voice Intelligence emotional analysis
-        const emotionalState = analyzeUserEmotion(userMessage);
+        const emotionalState = await analyzeUserEmotion(userMessage);
         console.log('🎤 Voice Intelligence Analysis:', {
           text: userMessage,
-          emotion: emotionalState.primaryEmotion,
-          intensity: emotionalState.emotionalIntensity,
-          crisisLevel: emotionalState.crisisLevel
+          emotion: emotionalState?.primaryEmotion || 'neutral',
+          intensity: emotionalState?.emotionalIntensity || 0.5,
+          crisisLevel: emotionalState?.crisisLevel || 'none'
         });
-        
-        // Get emotional response based on Voice Intelligence analysis
-        const emotionalResponse = getEmotionalResponse(emotionalState, userMessage);
         
         try {
           console.log('🎤 Sending message to chat...');

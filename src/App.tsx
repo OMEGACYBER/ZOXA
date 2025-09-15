@@ -4,14 +4,21 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
+import CrisisProvider from "@/components/crisis/CrisisProvider";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import Auth from "./pages/Auth";
 import Chat from "./pages/Chat";
 import VoiceChat from "./pages/VoiceChat";
-import Pricing from "./pages/Pricing";
+import SimpleVoiceChat from "./components/SimpleVoiceChat";
+import ProductionVoiceChat from "./components/ProductionVoiceChat";
+import MobileVoiceChat from "./components/MobileVoiceChat";
+import TestVoiceChat from "./components/TestVoiceChat";
+import APITest from "./components/APITest";
 import Docs from "./pages/Docs";
 import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
 import NotFound from "./pages/NotFound";
+
 
 const queryClient = new QueryClient();
 
@@ -19,21 +26,29 @@ const App = () => (
   <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Chat />} />
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/chat" element={<Chat />} />
-            <Route path="/voice-chat" element={<VoiceChat />} />
-            <Route path="/pricing" element={<Pricing />} />
-            <Route path="/docs" element={<Docs />} />
-            <Route path="/terms" element={<Terms />} />
-            <Route path="/privacy" element={<Privacy />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
+        <CrisisProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <ErrorBoundary>
+              <Routes>
+                <Route path="/" element={<SimpleVoiceChat />} />
+                <Route path="/auth" element={<Auth />} />
+                <Route path="/chat" element={<Chat />} />
+                <Route path="/voice-chat" element={<VoiceChat />} />
+                <Route path="/simple" element={<SimpleVoiceChat />} />
+                <Route path="/production" element={<ProductionVoiceChat />} />
+                <Route path="/mobile" element={<MobileVoiceChat />} />
+                <Route path="/test" element={<TestVoiceChat />} />
+                <Route path="/api-test" element={<APITest />} />
+                <Route path="/docs" element={<Docs />} />
+                <Route path="/terms" element={<Terms />} />
+                <Route path="/privacy" element={<Privacy />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </ErrorBoundary>
+          </BrowserRouter>
+        </CrisisProvider>
       </TooltipProvider>
     </QueryClientProvider>
   </ThemeProvider>

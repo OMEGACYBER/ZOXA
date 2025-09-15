@@ -6,7 +6,7 @@ export interface LogEntry {
   level: 'debug' | 'info' | 'warn' | 'error';
   category: 'emotion' | 'voice' | 'conversation' | 'system' | 'api';
   message: string;
-  data?: any;
+  data?: unknown;
   sessionId?: string;
 }
 
@@ -46,7 +46,7 @@ export class ProductionLogger {
   }
 
   // 🚨 CRITICAL: Sanitize all log data to prevent information leakage
-  private sanitizeData(data: any): any {
+  private sanitizeData(data: unknown): unknown {
     if (!data) return data;
     
     // Remove sensitive fields
@@ -70,7 +70,7 @@ export class ProductionLogger {
   }
 
   // 🧠 Emotion analysis logging (internal only)
-  logEmotion(sessionId: string, message: string, data?: any): void {
+  logEmotion(sessionId: string, message: string, data?: unknown): void {
     this.addLog({
       timestamp: Date.now(),
       level: 'debug',
@@ -82,7 +82,7 @@ export class ProductionLogger {
   }
 
   // 🎤 Voice system logging (internal only)
-  logVoice(sessionId: string, message: string, data?: any): void {
+  logVoice(sessionId: string, message: string, data?: unknown): void {
     this.addLog({
       timestamp: Date.now(),
       level: 'debug',
@@ -94,7 +94,7 @@ export class ProductionLogger {
   }
 
   // 💬 Conversation logging (internal only)
-  logConversation(sessionId: string, message: string, data?: any): void {
+  logConversation(sessionId: string, message: string, data?: unknown): void {
     this.addLog({
       timestamp: Date.now(),
       level: 'info',
@@ -106,7 +106,7 @@ export class ProductionLogger {
   }
 
   // 🔧 System logging (internal only)
-  logSystem(message: string, data?: any): void {
+  logSystem(message: string, data?: unknown): void {
     this.addLog({
       timestamp: Date.now(),
       level: 'info',
@@ -117,7 +117,7 @@ export class ProductionLogger {
   }
 
   // 🌐 API logging (internal only)
-  logAPI(sessionId: string, message: string, data?: any): void {
+  logAPI(sessionId: string, message: string, data?: unknown): void {
     this.addLog({
       timestamp: Date.now(),
       level: 'debug',
@@ -129,7 +129,7 @@ export class ProductionLogger {
   }
 
   // ⚠️ Warning logging (internal only)
-  logWarning(sessionId: string, message: string, data?: any): void {
+  logWarning(sessionId: string, message: string, data?: unknown): void {
     this.addLog({
       timestamp: Date.now(),
       level: 'warn',
@@ -141,7 +141,7 @@ export class ProductionLogger {
   }
 
   // ❌ Error logging (internal only)
-  logError(sessionId: string, message: string, error?: any): void {
+  logError(sessionId: string, message: string, error?: unknown): void {
     this.addLog({
       timestamp: Date.now(),
       level: 'error',
@@ -237,7 +237,7 @@ export class ProductionLogger {
   }
 
   // 📈 Get session statistics (development only)
-  getSessionStats(sessionId: string): any {
+  getSessionStats(sessionId: string): { totalLogs: number; errorCount: number; warningCount: number; lastActivity: number } | null {
     if (this.config.productionMode) {
       return null;
     }

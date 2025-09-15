@@ -4,8 +4,12 @@ import { EnhancedEmotionalSystem } from "@/utils/enhancedEmotionalSystem";
 import { ConversationMemoryManager } from "@/utils/conversationMemory";
 import { EVI3VoiceAnalyzer } from "@/utils/advancedVoiceAnalysis";
 import { CrisisDetectionSystem } from "@/utils/crisisDetection";
+import { supabaseService } from "@/services/supabaseService";
+import { supabase } from "@/integrations/supabase/client";
+import { useCrisis } from "@/components/crisis/CrisisProvider";
 
 interface Message {
+  id: string;
   role: "user" | "assistant" | "system";
   content: string;
   timestamp?: number;
@@ -49,20 +53,80 @@ export const useZoxaaChat = (): UseZoxaaChatReturn => {
     comfortLevel: 0.3
   });
 
+  const { reportCrisis } = useCrisis();
+
   const abortControllerRef = useRef<AbortController | null>(null);
   const emotionalSystemRef = useRef<EnhancedEmotionalSystem>(new EnhancedEmotionalSystem(true));
   const memoryManagerRef = useRef<ConversationMemoryManager>(ConversationMemoryManager.getInstance());
   const voiceAnalyzerRef = useRef<EVI3VoiceAnalyzer>(new EVI3VoiceAnalyzer());
   const crisisDetectionRef = useRef<CrisisDetectionSystem>(new CrisisDetectionSystem());
   const sessionIdRef = useRef<string>('default');
+  const currentConversationRef = useRef<string | null>(null);
+  const currentUserRef = useRef<string | null>(null);
+  const currentSessionRef = useRef<string | null>(null);
 
-  // Initialize session
+  // Initialize session and database connection
   useEffect(() => {
-    const sessionId = `session_${Date.now()}`;
-    sessionIdRef.current = sessionId;
-    
-    // Initialize emotional system for this session
-    emotionalSystemRef.current.analyzeEmotion("Hello", sessionId);
+    const initializeSession = async () => {
+      try {
+        // Get current user
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          currentUserRef.current = user.id;
+          
+          // Start session tracking
+          const session = await supabaseService.startSession(user.id);
+          if (session) {
+            currentSessionRef.current = session.id;
+          }
+          
+          // Create or get active conversation
+          const conversation = await supabaseService.createConversation(
+            user.id, 
+            'mixed', // Support both text and voice
+            `Chat ${new Date().toLocaleDateString()}`
+          );
+          if (conversation) {
+            currentConversationRef.current = conversation.id;
+          }
+          
+          // Load existing messages
+          if (conversation) {
+            const existingMessages = await supabaseService.getMessages(conversation.id);
+            const formattedMessages = existingMessages.map(msg => ({
+              id: msg.id,
+              role: msg.role,
+              content: msg.content,
+              timestamp: new Date(msg.created_at).getTime(),
+              emotion: msg.emotion_data.primaryEmotion,
+              crisisLevel: msg.crisis_indicators.crisisLevel,
+              emotionalIntensity: msg.emotion_data.emotionalIntensity
+            }));
+            setMessages(formattedMessages);
+          }
+        }
+        
+        const sessionId = `session_${Date.now()}`;
+        sessionIdRef.current = sessionId;
+        
+        // Initialize emotional system for this session
+        emotionalSystemRef.current.analyzeEmotion("Hello", sessionId);
+        
+        // Log initialization
+        if (currentUserRef.current) {
+          supabaseService.logEvent(
+            'chat_session_initialized',
+            { sessionId, userId: currentUserRef.current },
+            'info',
+            currentUserRef.current
+          );
+        }
+      } catch (error) {
+        console.error('Error initializing chat session:', error);
+      }
+    };
+
+    initializeSession();
   }, []);
 
   const analyzeEmotionalState = useCallback(async (text: string) => {
@@ -174,6 +238,7 @@ export const useZoxaaChat = (): UseZoxaaChatReturn => {
     const userCrisisLevel = crisisIndicators.crisisLevel;
 
     const userMessage: Message = { 
+      id: `user_${Date.now()}`,
       role: "user", 
       content,
       timestamp: Date.now(),
@@ -194,6 +259,63 @@ export const useZoxaaChat = (): UseZoxaaChatReturn => {
         emotionalIntensity,
         userResponse: undefined
       });
+      
+      // Save to database if we have a conversation
+      if (currentConversationRef.current && currentUserRef.current) {
+        await supabaseService.saveMessage(
+          currentConversationRef.current,
+          'user',
+          content,
+          'text',
+          {
+            primaryEmotion: userEmotion,
+            emotionalIntensity,
+            confidence: emotionalState?.confidence || 0.5
+          },
+          undefined,
+          {
+            crisisLevel: userCrisisLevel,
+            indicators: crisisIndicators.indicators || []
+          }
+        );
+        
+        // Save emotion analytics
+        await supabaseService.saveEmotionAnalytic(
+          currentUserRef.current,
+          currentConversationRef.current,
+          userEmotion,
+          emotionalIntensity,
+          emotionalState?.confidence || 0.5,
+          extractTopics(content),
+          content
+        );
+        
+        // Save crisis event if detected and trigger crisis alert
+        if (userCrisisLevel !== 'none') {
+          await supabaseService.saveCrisisEvent(
+            currentUserRef.current,
+            currentConversationRef.current,
+            userCrisisLevel as any,
+            crisisIndicators.indicators || [],
+            content
+          );
+          
+          // Trigger crisis alert UI
+          reportCrisis(
+            userCrisisLevel as any,
+            crisisIndicators.indicators || [],
+            content
+          );
+        }
+        
+        // Update session interaction count
+        if (currentSessionRef.current) {
+          await supabaseService.updateSession(currentSessionRef.current, {
+            text_interactions: (await supabaseService.getMessages(currentConversationRef.current)).filter(m => m.role === 'user').length,
+            interaction_count: (await supabaseService.getMessages(currentConversationRef.current)).length
+          });
+        }
+      }
     } catch (error) {
       console.error("Error updating memory:", error);
     }
@@ -253,6 +375,7 @@ Use this context to provide a more personalized and emotionally intelligent resp
         const assistantEmotion = responseEmotionalState?.primaryEmotion || 'neutral';
         
         const assistantMessage: Message = { 
+          id: `assistant_${Date.now()}`,
           role: "assistant", 
           content: data.response,
           timestamp: Date.now(),
@@ -272,6 +395,32 @@ Use this context to provide a more personalized and emotionally intelligent resp
             emotionalIntensity: responseEmotionalState?.emotionalIntensity || 0.5,
             userResponse: undefined
           });
+          
+          // Save assistant message to database
+          if (currentConversationRef.current && currentUserRef.current) {
+            await supabaseService.saveMessage(
+              currentConversationRef.current,
+              'assistant',
+              data.response,
+              'text',
+              {
+                primaryEmotion: assistantEmotion,
+                emotionalIntensity: responseEmotionalState?.emotionalIntensity || 0.5,
+                confidence: responseEmotionalState?.confidence || 0.5
+              }
+            );
+            
+            // Save assistant emotion analytics
+            await supabaseService.saveEmotionAnalytic(
+              currentUserRef.current,
+              currentConversationRef.current,
+              assistantEmotion,
+              responseEmotionalState?.emotionalIntensity || 0.5,
+              responseEmotionalState?.confidence || 0.5,
+              extractTopics(data.response),
+              data.response
+            );
+          }
         } catch (error) {
           console.error("Error updating memory with response:", error);
         }
@@ -285,6 +434,7 @@ Use this context to provide a more personalized and emotionally intelligent resp
       
       // Add error message
       const errorMessage: Message = { 
+        id: `error_${Date.now()}`,
         role: "assistant", 
         content: "I'm sorry, I'm having trouble processing that right now. Could you try again?",
         timestamp: Date.now(),
@@ -302,10 +452,34 @@ Use this context to provide a more personalized and emotionally intelligent resp
     }
   }, [messages, analyzeEmotionalState, updateEmotionalTrends, emotionalTrends.overallMood]);
 
-  const clearMessages = useCallback(() => {
+  const clearMessages = useCallback(async () => {
     setMessages([]);
     setCurrentEmotion('neutral');
     setCrisisLevel('none');
+    
+    // End current session if active
+    if (currentSessionRef.current) {
+      await supabaseService.endSession(currentSessionRef.current);
+      currentSessionRef.current = null;
+    }
+    
+    // Create new conversation if user is authenticated
+    if (currentUserRef.current) {
+      const conversation = await supabaseService.createConversation(
+        currentUserRef.current, 
+        'mixed',
+        `Chat ${new Date().toLocaleDateString()}`
+      );
+      if (conversation) {
+        currentConversationRef.current = conversation.id;
+      }
+      
+      // Start new session
+      const session = await supabaseService.startSession(currentUserRef.current);
+      if (session) {
+        currentSessionRef.current = session.id;
+      }
+    }
   }, []);
 
   // Helper function to extract topics from text

@@ -1,4 +1,11 @@
 import OpenAI from 'openai';
+import { checkRateLimit, getClientIp } from './_lib/rateLimit.js';
+import crypto from 'crypto';
+
+// Simple in-memory cache for TTS responses
+const ttsCache = new Map();
+const CACHE_MAX_SIZE = 1000; // Maximum number of cached responses
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
 export default async function handler(req, res) {
   // Security headers
@@ -7,19 +14,8 @@ export default async function handler(req, res) {
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   
-  // Enable CORS with restrictions
-  const allowedOrigins = [
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'https://zoxaa.vercel.app',
-    'https://zoxaa-ai.vercel.app'
-  ];
-  
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  
+  // CORS: allow all origins (Vercel also injects headers via vercel.json)
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Max-Age', '86400');
@@ -32,6 +28,16 @@ export default async function handler(req, res) {
   // Only allow POST requests
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // Rate limiting
+  const clientIP = getClientIp(req);
+  const allowed = await checkRateLimit(clientIP, 60, 8); // 8 requests per minute for TTS
+  if (!allowed) {
+    return res.status(429).json({ 
+      error: 'Rate limit exceeded',
+      details: 'Too many text-to-speech requests. Please try again later.'
+    });
   }
 
   // Check if API key is available
@@ -52,127 +58,130 @@ export default async function handler(req, res) {
     const { 
       text, 
       voice = 'nova', 
-      speed = 1.0, 
+      speed = 1.1, // Slightly faster for better responsiveness
       pitch = 1.0,
       volume = 1.0,
       emotion = 'neutral', 
       ssml = false,
-      naturalPauses = true,
-      emotionalModulation = true
+      naturalPauses = false, // Disable for speed
+      emotionalModulation = true // Enable for better human-like voice
     } = req.body;
 
-    // Input validation
-    if (!text || typeof text !== 'string') {
+    // Fast input validation
+    if (!text || typeof text !== 'string' || text.length === 0) {
       return res.status(400).json({ 
-        error: 'Invalid request format',
-        details: 'text parameter is required and must be a string'
+        error: 'Invalid text',
+        details: 'Text is required and must be a non-empty string'
       });
     }
 
-    if (text.length === 0) {
-      return res.status(400).json({
-        error: 'Empty text',
-        details: 'Text cannot be empty'
-      });
-    }
-
-    if (text.length > 4000) {
+    // Optimized length check for better performance
+    if (text.length > 300) {
       return res.status(400).json({
         error: 'Text too long',
-        details: 'Text must be less than 4000 characters for mobile compatibility'
+        details: 'Text must be less than 300 characters for optimal voice generation speed'
       });
     }
 
-    // Validate voice parameter
-    const validVoices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
-    if (!validVoices.includes(voice)) {
-      return res.status(400).json({
-        error: 'Invalid voice',
-        details: `Voice must be one of: ${validVoices.join(', ')}`
-      });
-    }
-
-    // Validate numeric parameters
-    if (typeof speed !== 'number' || speed < 0.25 || speed > 4.0) {
-      return res.status(400).json({
-        error: 'Invalid speed',
-        details: 'Speed must be a number between 0.25 and 4.0'
-      });
-    }
-
-    if (typeof pitch !== 'number' || pitch < 0.5 || pitch > 2.0) {
-      return res.status(400).json({
-        error: 'Invalid pitch',
-        details: 'Pitch must be a number between 0.5 and 2.0'
-      });
-    }
-
-    if (typeof volume !== 'number' || volume < 0.0 || volume > 2.0) {
-      return res.status(400).json({
-        error: 'Invalid volume',
-        details: 'Volume must be a number between 0.0 and 2.0'
-      });
-    }
-
-    // Simple text processing - no emotional analysis here
-    let processedText = text
-      .replace(/<[^>]*>/g, '') // Remove HTML tags
-      .replace(/\*[^*]*\*/g, '') // Remove action tags like *smiles*, *laughs*, etc.
-      .trim();
-
-    // Generate SSML if requested by Voice Intelligence system
-    let finalText = processedText;
-    if (ssml && emotionalModulation) {
-      finalText = generateSimpleSSML(processedText, speed, pitch, volume, emotion);
-    }
+    // Minimal text processing for maximum speed
+    let processedText = text.trim();
 
     console.log('🎤 Generating TTS with OpenAI:', {
       voice,
-      speed,
-      pitch,
-      volume,
-      emotion,
-      ssml,
-      textLength: finalText.length
+      textLength: processedText.length
     });
 
-    const response = await openai.audio.speech.create({
-      model: 'tts-1-hd',
-      voice: voice,
-      input: finalText,
-      response_format: 'mp3',
-      speed: Math.max(0.25, Math.min(4.0, speed))
-    });
+    // Create cache key for this request
+    const cacheKey = crypto.createHash('md5')
+      .update(`${processedText}-${voice}-${speed}-${pitch}-${volume}-${emotion}`)
+      .digest('hex');
+
+    // Check cache first
+    if (ttsCache.has(cacheKey)) {
+      const cached = ttsCache.get(cacheKey);
+      if (Date.now() - cached.timestamp < CACHE_TTL) {
+        console.log('🎤 TTS Cache HIT:', cacheKey.substring(0, 8));
+        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('Content-Length', cached.audioBuffer.length);
+        res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=172800'); // 24h cache
+        res.setHeader('X-Cache', 'HIT');
+        return res.send(cached.audioBuffer);
+      } else {
+        ttsCache.delete(cacheKey); // Remove expired cache
+      }
+    }
+
+    console.log('🎤 TTS Cache MISS:', cacheKey.substring(0, 8));
+
+    // Add emotional context to text for better voice modulation
+    let enhancedText = processedText;
+    if (emotionalModulation && emotion !== 'neutral') {
+      enhancedText = `[${emotion} tone] ${processedText}`;
+    }
+
+    // Use widely available TTS model; prefer gpt-4o-mini-tts, fallback to tts-1
+    let response;
+    try {
+      response = await openai.audio.speech.create({
+        model: 'gpt-4o-mini-tts',
+        voice: voice,
+        input: enhancedText,
+        response_format: 'mp3',
+        speed: 1.1
+      });
+    } catch (primaryError) {
+      console.warn('TTS primary model failed, falling back to tts-1:', primaryError?.message);
+      response = await openai.audio.speech.create({
+        model: 'tts-1',
+        voice: voice,
+        input: enhancedText,
+        response_format: 'mp3',
+        speed: 1.1
+      });
+    }
 
     const audioBuffer = Buffer.from(await response.arrayBuffer());
 
-    // Return audio as binary data
+    // Cache the response
+    if (ttsCache.size >= CACHE_MAX_SIZE) {
+      // Remove oldest entries when cache is full
+      const firstKey = ttsCache.keys().next().value;
+      ttsCache.delete(firstKey);
+    }
+    ttsCache.set(cacheKey, {
+      audioBuffer,
+      timestamp: Date.now()
+    });
+
+    // Return audio as binary data with optimized caching and compression
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Content-Length', audioBuffer.length);
-    res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+    res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=7200'); // Better caching strategy
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Vary', 'Accept-Encoding');
+    res.setHeader('X-Cache', 'MISS');
     res.send(audioBuffer);
 
   } catch (error) {
     console.error('❌ TTS API error:', error);
-    
-    // Provide more specific error messages
-    if (error.message.includes('401')) {
+    const message = error?.message || 'Unknown error';
+    const details = error?.response?.data || error?.stack || null;
+    if (message.includes('401')) {
       return res.status(401).json({ 
         error: 'Invalid API key',
         details: 'Please check your OpenAI API key'
       });
     }
-    
-    if (error.message.includes('429')) {
+    if (message.includes('429')) {
       return res.status(429).json({ 
         error: 'Rate limit exceeded',
         details: 'Please try again later'
       });
     }
-    
     res.status(500).json({ 
       error: 'Failed to generate speech',
-      details: error.message 
+      details: message,
+      meta: details
     });
   }
 }

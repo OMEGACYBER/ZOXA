@@ -1,4 +1,10 @@
 import OpenAI from 'openai';
+import { promises as fs } from 'node:fs';
+import { createReadStream } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { checkRateLimit, getClientIp } from './_lib/rateLimit.js';
 
 export default async function handler(req, res) {
   // Security headers
@@ -7,25 +13,24 @@ export default async function handler(req, res) {
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   
-  // Enable CORS with restrictions
-  const allowedOrigins = [
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'https://zoxaa.vercel.app',
-    'https://zoxaa-ai.vercel.app'
-  ];
-  
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  
+  // CORS: allow all origins (Vercel also injects headers via vercel.json)
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Max-Age', '86400');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Rate limiting disabled for development
+  // const clientIP = getClientIp(req);
+  // const allowed = await checkRateLimit(clientIP, 60, 100);
+  // if (!allowed) {
+  //   return res.status(429).json({ 
+  //     error: 'Rate limit exceeded',
+  //     details: 'Too many speech-to-text requests. Please try again later.'
+  //   });
+  // }
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -80,11 +85,12 @@ export default async function handler(req, res) {
       });
     }
 
-    const minSize = 1024; // 1KB
+    // Allow very short utterances (~250ms) in dev; OpenAI handles small files.
+    const minSize = 256; // bytes
     if (audioBuffer.length < minSize) {
       return res.status(400).json({
         error: 'Audio file too small',
-        details: 'Audio file must be at least 1KB'
+        details: `Audio file length ${audioBuffer.length} bytes is less than minimum ${minSize} bytes`,
       });
     }
 
@@ -93,16 +99,26 @@ export default async function handler(req, res) {
       size: `${(audioBuffer.length / 1024).toFixed(2)}KB`
     });
 
-    // Use Blob for Node18+ compatibility
-    const blob = new Blob([audioBuffer], { type: `audio/${audioFormat}` });
-
-    const transcription = await openai.audio.transcriptions.create({
-      file: blob,
-      model: 'whisper-1',
-      language: 'en',
-      response_format: 'json',
-      temperature: 0.2
-    });
+    // Write to a temp file to ensure proper multipart upload semantics
+    const tmpDir = os.tmpdir();
+    const filename = `speech-${crypto.randomUUID()}.${audioFormat}`;
+    const filepath = path.join(tmpDir, filename);
+    await fs.writeFile(filepath, audioBuffer);
+    
+    let transcription;
+    try {
+      transcription = await openai.audio.transcriptions.create({
+        file: createReadStream(filepath),
+        model: 'whisper-1',
+        language: 'en',
+        response_format: 'json',
+        temperature: 0.0,
+        prompt: 'This is a conversation with ZOXAA, an AI companion. The speech may contain casual language, emotions, and natural conversation patterns.'
+      });
+    } finally {
+      // Best-effort cleanup
+      try { await fs.unlink(filepath); } catch {}
+    }
 
     res.json({
       text: transcription.text,
@@ -113,9 +129,13 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('❌ STT API error:', error);
-    if (error.message?.includes('401')) return res.status(401).json({ error: 'Invalid API key', details: 'Please check your OpenAI API key' });
-    if (error.message?.includes('429')) return res.status(429).json({ error: 'Rate limit exceeded', details: 'Please try again later' });
-    if (error.message?.includes('file')) return res.status(400).json({ error: 'Invalid audio file', details: 'Please check the audio format and data' });
-    res.status(500).json({ error: 'Failed to transcribe audio', details: error.message });
+    const message = error?.message || 'Unknown error';
+    const details = error?.response?.data || error?.stack || null;
+    if (message.includes('401')) return res.status(401).json({ error: 'Invalid API key', details: 'Please check your OpenAI API key' });
+    if (message.includes('429')) return res.status(429).json({ error: 'Rate limit exceeded', details: 'Please try again later' });
+    if (message.toLowerCase().includes('file') || message.toLowerCase().includes('format')) {
+      return res.status(400).json({ error: 'Invalid audio file', details: message });
+    }
+    res.status(500).json({ error: 'Failed to transcribe audio', details: message, meta: details });
   }
 }

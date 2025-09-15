@@ -11,7 +11,7 @@ export interface EmotionalMemory {
   timestamp: number;
   emotionalState: SimplifiedEmotionalState;
   inputText: string;
-  voiceData?: any; // For future voice analysis integration
+  voiceData?: unknown; // For future voice analysis integration
   sessionId: string;
   userId?: string;
   latency?: number; // API response time tracking
@@ -71,7 +71,7 @@ export interface APIEmotionRequest {
   text: string;
   sessionId: string;
   userId?: string;
-  voiceData?: any;
+  voiceData?: unknown;
   timestamp: number;
   endpoint: string;
 }
@@ -104,7 +104,7 @@ export class SimplifiedVoiceSystem {
   }
 
   // 🧠 Enhanced emotional analysis with comprehensive memory and session management
-  async analyzeEmotion(text: string, sessionId: string = 'default', userId?: string, voiceData?: any): Promise<SimplifiedEmotionalState> {
+  async analyzeEmotion(text: string, sessionId: string = 'default', userId?: string, voiceData?: unknown): Promise<SimplifiedEmotionalState> {
     const startTime = performance.now();
     const currentTime = Date.now();
     
@@ -415,7 +415,7 @@ export class SimplifiedVoiceSystem {
             volume = 0.95;
             emotion = 'calm_concerned';
             break;
-          default:
+          default: {
             // Blend primary and secondary emotions
             const primarySettings = this.getEmotionSettings(primaryEmotion);
             const secondarySettings = this.getEmotionSettings(secondaryEmotion);
@@ -423,6 +423,8 @@ export class SimplifiedVoiceSystem {
             pitch = (primarySettings.pitch + secondarySettings.pitch) / 2;
             volume = (primarySettings.volume + secondarySettings.volume) / 2;
             emotion = `${primaryEmotion}_${secondaryEmotion}`;
+            break;
+          }
         }
       }
       // Handle sarcasm
@@ -806,7 +808,7 @@ export class SimplifiedVoiceSystem {
   }
 
   // Store emotional memory
-  private storeEmotionalMemory(sessionContext: SessionEmotionalContext, emotionalState: SimplifiedEmotionalState, text: string, voiceData?: any): void {
+  private storeEmotionalMemory(sessionContext: SessionEmotionalContext, emotionalState: SimplifiedEmotionalState, text: string, voiceData?: unknown): void {
     const memory: EmotionalMemory = {
       timestamp: Date.now(),
       emotionalState: { ...emotionalState },
@@ -925,14 +927,14 @@ export class SimplifiedVoiceSystem {
   }
 
   // Detect voice-text conflicts
-  private detectVoiceTextConflict(emotionalState: SimplifiedEmotionalState, voiceData: any): boolean {
+  private detectVoiceTextConflict(emotionalState: SimplifiedEmotionalState, voiceData: unknown): boolean {
     // This would integrate with voice analysis system
     // For now, return false as placeholder
     return false;
   }
 
   // Resolve voice-text conflicts
-  private resolveVoiceTextConflict(emotionalState: SimplifiedEmotionalState, voiceData: any): 'text' | 'voice' | 'blend' {
+  private resolveVoiceTextConflict(emotionalState: SimplifiedEmotionalState, voiceData: unknown): 'text' | 'voice' | 'blend' {
     // This would analyze voice data and determine resolution strategy
     // For now, default to text
     return 'text';
@@ -957,7 +959,7 @@ export class SimplifiedVoiceSystem {
   }
 
   // Generate cache key
-  private generateCacheKey(text: string, sessionId: string, voiceData?: any): string {
+  private generateCacheKey(text: string, sessionId: string, voiceData?: unknown): string {
     const textHash = text.toLowerCase().replace(/\s+/g, '').substring(0, 50);
     const voiceHash = voiceData ? JSON.stringify(voiceData).substring(0, 20) : '';
     return `${sessionId}_${textHash}_${voiceHash}`;
@@ -1055,7 +1057,7 @@ export class SimplifiedVoiceSystem {
   }
 
   // Export session data for debugging
-  exportSessionData(sessionId: string): any {
+  exportSessionData(sessionId: string): SessionEmotionalContext | null {
     const session = this.emotionalSessions.get(sessionId);
     if (!session) return null;
     
