@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => ({
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, _res) => {
             // Only log error if it's not a connection refused (backend not running)
-            if (err.code !== 'ECONNREFUSED') {
+            if ((err as any).code !== 'ECONNREFUSED') {
               console.log('proxy error', err);
             }
           });
@@ -45,7 +45,8 @@ export default defineConfig(({ mode }) => ({
   },
   build: {
     target: 'es2020',
-    minify: 'terser',
+    // Use default esbuild minifier for portability on Vercel
+    minify: 'esbuild',
     sourcemap: mode === 'development',
     rollupOptions: {
       output: {
