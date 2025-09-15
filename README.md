@@ -44,21 +44,45 @@ zoxaa-cogni-partner-main/
 cd zoxaa-ai/zoxaa-cogni-partner-main
 ```
 
-2. **Install frontend dependencies:**
+2. **Install dependencies:**
 ```bash
 npm install
 ```
 
-3. **Install backend dependencies:**
-```bash
-cd backend && npm install && cd ..
-```
-
-4. **Set up environment variables:**
-Create a `.env` file in the backend directory:
+3. **Set up environment variables:**
+Create a `.env` file in the project root:
 ```
 OPENAI_API_KEY=your_openai_api_key_here
-PORT=3001
+API_PORT=3001
+VITE_SUPABASE_URL=your_supabase_url_here
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+```
+
+### Running the Application
+
+#### Option 1: Frontend Only (UI Demo)
+```bash
+npm run dev
+```
+Frontend will be available at `http://localhost:5174`
+
+#### Option 2: Backend Only (API Server)
+```bash
+npm run dev:api
+```
+Backend API will be available at `http://localhost:3001`
+
+#### Option 3: Both Frontend and Backend (Full Experience)
+```bash
+npm run dev:all
+```
+- Frontend: `http://localhost:5174`
+- Backend: `http://localhost:3001`
+
+#### Option 4: Android App
+```bash
+npm run build:android
+npm run android:run
 ```
 
 ### Running the Application
@@ -159,3 +183,4 @@ Make sure to set these environment variables in your Vercel dashboard:
 
 MIT License - see LICENSE file for details. 
 # Auto-trigger deployment
+# ZOXA
